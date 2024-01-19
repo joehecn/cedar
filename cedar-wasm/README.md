@@ -9,5 +9,9 @@ cargo build --release
 
 # npm
 wasm-pack build --release
-wasm-pack build --target nodejs
+wasm-pack build --release --target nodejs
+
+# vpn
+nmcli con up hk_vpn
+nmcli con down hk_vpn
 ```
