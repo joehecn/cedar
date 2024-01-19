@@ -2,7 +2,9 @@
 
 use wasm_bindgen::prelude::wasm_bindgen;
 
-use cedar_policy::{Authorizer, Context, Entities, EntityUid, PolicySet, Request};
+use cedar_policy::{
+    Authorizer, Context, Entities, EntityUid, PolicySet, Request, Schema, ValidationMode, Validator,
+};
 
 use serde_json::json;
 
@@ -48,7 +50,7 @@ pub fn is_authorized(
     let _errors = diagnostics.errors();
     let mut errors = Vec::new();
     for err in _errors {
-        let error = format!("{}", err);
+        let error = err.to_string();
         errors.push(error);
     }
 
@@ -58,4 +60,18 @@ pub fn is_authorized(
         "errors": errors,
     })
     .to_string()
+}
+
+#[wasm_bindgen(js_name = "validate")]
+pub fn validate(schema_str: &str, policies_str: &str) -> String {
+    let json = serde_json::from_str(schema_str).unwrap();
+    let schema: Schema = Schema::from_json_value(json).unwrap();
+
+    let validator = Validator::new(schema);
+
+    let policy_set = PolicySet::from_str(policies_str).expect("entity parse error");
+
+    let result = validator.validate(&policy_set, ValidationMode::default());
+
+    result.to_string()
 }
