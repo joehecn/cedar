@@ -15,3 +15,35 @@ wasm-pack build --release --target nodejs
 nmcli con up hk_vpn
 nmcli con down hk_vpn
 ```
+
+# example
+``` js
+import { getCedarVersion, isAuthorized } from "cedar-wasm";
+
+// getCedarVersion
+const version = getCedarVersion();
+console.log({ version });
+
+// isAuthorized
+const principal = 'User::"alice"';
+const action = 'Action::"read"';
+const resource = 'Photo::"foo.jpg"';
+const context = "{}";
+const policies = `
+    permit(
+      principal == User::"alice",
+      action    in [Action::"read", Action::"edit"],
+      resource  == Photo::"foo.jpg"
+    );
+  `;
+const entities = "[]";
+const result = isAuthorized(
+  principal,
+  action,
+  resource,
+  context,
+  policies,
+  entities
+);
+console.log(JSON.parse(result));
+```
