@@ -12,8 +12,9 @@ jobs:
 
       - name: Install
         run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
-      - run: cd cedar-wasm
-      - run: wasm-pack build --release --target nodejs
+      - name: Build
+        working-directory: ./cedar-wasm
+        run: wasm-pack build --release --target nodejs
 
   publish-npm:
     needs: build
@@ -24,7 +25,8 @@ jobs:
         with:
           node-version: 20
           registry-url: https://registry.npmjs.org/
-      - run: cd pkg
-      - run: npm publish
+      - name: Publish
+        working-directory: ./cedar-wasm/pkg
+        run: npm publish
         env:
           NODE_AUTH_TOKEN: ${{secrets.npm_token}}
