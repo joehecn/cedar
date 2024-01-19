@@ -6,5 +6,8 @@ An implementation of various cedar functions to enable developers to write types
 ``` bash
 cargo build
 cargo build --release
-cargo build --release --target wasm32-unknown-unknown
+
+# npm
+wasm-pack build --release
+wasm-pack build --target nodejs
 ```
