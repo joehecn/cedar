@@ -5,7 +5,7 @@ on:
     types: [created]
 
 jobs:
-  publish-npm:
+  publish-npm-nodejs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
@@ -16,10 +16,27 @@ jobs:
       - name: Install
         run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
       - name: Build
-        working-directory: ./cedar-wasm
-        run: wasm-pack build --release --target nodejs
+        run: wasm-pack build cedar-wasm --release --target nodejs --scope joehecnnodejs
       - name: Publish
         working-directory: ./cedar-wasm/pkg
-        run: npm publish
+        run: npm publish -access public
+        env:
+          NODE_AUTH_TOKEN: ${{secrets.npm_token}}
+
+  publish-npm-web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-node@v3
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org/
+      - name: Install
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+      - name: Build
+        run: wasm-pack build cedar-wasm --release --target web --scope joehecnweb
+      - name: Publish
+        working-directory: ./cedar-wasm/pkg
+        run: npm publish -access public
         env:
           NODE_AUTH_TOKEN: ${{secrets.npm_token}}
