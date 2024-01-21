@@ -25,18 +25,71 @@ pub fn is_authorized(
     policies_str: &str,
     entities_str: &str,
 ) -> String {
-    let principal = EntityUid::from_str(principal_str).expect("principal parse error");
-    let action = EntityUid::from_str(action_str).expect("action parse error");
-    let resource = EntityUid::from_str(resource_str).expect("resource parse error");
-    let context = Context::from_json_str(context_str, None).expect("context parse error");
-    let policies = PolicySet::from_str(policies_str).expect("policies parse error");
-    let entities = Entities::from_json_str(entities_str, None).expect("entities parse error");
+    let principal = EntityUid::from_str(principal_str);
+    if principal.is_err() {
+        return json!({
+            "code": 101,
+            "message": "principal parse error"
+        })
+        .to_string();
+    }
 
-    let request =
-        Request::new(Some(principal), Some(action), Some(resource), context, None).unwrap();
+    let action = EntityUid::from_str(action_str);
+    if action.is_err() {
+        return json!({
+            "code": 102,
+            "message": "action parse error"
+        })
+        .to_string();
+    }
+
+    let resource = EntityUid::from_str(resource_str);
+    if resource.is_err() {
+        return json!({
+            "code": 103,
+            "message": "resource parse error"
+        })
+        .to_string();
+    }
+
+    let context = Context::from_json_str(context_str, None);
+    if context.is_err() {
+        return json!({
+            "code": 104,
+            "message": "context parse error"
+        })
+        .to_string();
+    }
+
+    let policies = PolicySet::from_str(policies_str);
+    if policies.is_err() {
+        return json!({
+            "code": 105,
+            "message": "policies parse error"
+        })
+        .to_string();
+    }
+
+    let entities = Entities::from_json_str(entities_str, None);
+    if entities.is_err() {
+        return json!({
+            "code": 106,
+            "message": "entities parse error"
+        })
+        .to_string();
+    }
+
+    let request = Request::new(
+        Some(principal.unwrap()),
+        Some(action.unwrap()),
+        Some(resource.unwrap()),
+        context.unwrap(),
+        None,
+    )
+    .unwrap();
 
     let authorizer = Authorizer::new();
-    let response = authorizer.is_authorized(&request, &policies, &entities);
+    let response = authorizer.is_authorized(&request, &policies.unwrap(), &entities.unwrap());
 
     // change response to string
     let decision = response.decision();
@@ -56,22 +109,36 @@ pub fn is_authorized(
     }
 
     json!({
-        "decision": decision,
-        "reasons": reasons,
-        "errors": errors,
+        "code": 0,
+        "data": {
+            "decision": decision,
+            "reasons": reasons,
+            "errors": errors,
+        }
     })
     .to_string()
 }
 
 #[wasm_bindgen(js_name = "validate")]
 pub fn validate(schema_str: &str, policy_str: &str) -> String {
-    let schema_json = serde_json::from_str(schema_str).expect("schema_json parse error");
-    let schema: Schema = Schema::from_json_value(schema_json).expect("schema parse error");
-    let policy = PolicySet::from_str(policy_str).expect("policy parse error");
+    let schema_json = serde_json::from_str(schema_str);
+    if schema_json.is_err() {
+        return "schema_json parse error".to_string();
+    }
 
-    let validator = Validator::new(schema);
+    let schema = Schema::from_json_value(schema_json.unwrap());
+    if schema.is_err() {
+        return "schema parse error".to_string();
+    }
 
-    let result = validator.validate(&policy, ValidationMode::default());
+    let policy = PolicySet::from_str(policy_str);
+    if policy.is_err() {
+        return "policy parse error".to_string();
+    }
+
+    let validator = Validator::new(schema.unwrap());
+
+    let result = validator.validate(&policy.unwrap(), ValidationMode::default());
 
     result.to_string()
 }
@@ -103,14 +170,14 @@ mod tests {
 
         let result = is_authorized(principal, action, resource, context, policies, entities);
         let json: serde_json::Value = serde_json::from_str(&result).unwrap();
+        let data = json["data"].clone();
 
-        assert_eq!(json["decision"], "Allow");
-        assert_eq!(json["reasons"], serde_json::json!(["policy0"]));
-        assert_eq!(json["errors"], serde_json::json!([]));
+        assert_eq!(data["decision"], "Allow");
+        assert_eq!(data["reasons"], serde_json::json!(["policy0"]));
+        assert_eq!(data["errors"], serde_json::json!([]));
     }
 
     #[test]
-    #[should_panic(expected = "principal parse error")]
     fn test_is_authorized_principal_err() {
         let principal = r#"User:"alice""#;
         let action = r#"Action::"read""#;
@@ -125,11 +192,13 @@ mod tests {
         "#;
         let entities = r#"[]"#;
 
-        is_authorized(principal, action, resource, context, policies, entities);
+        let result = is_authorized(principal, action, resource, context, policies, entities);
+        let json: serde_json::Value = serde_json::from_str(&result).unwrap();
+
+        assert_eq!(json["code"], 101);
     }
 
     #[test]
-    #[should_panic(expected = "action parse error")]
     fn test_is_authorized_action_err() {
         let principal = r#"User::"alice""#;
         let action = r#"Action:"read""#;
@@ -144,11 +213,13 @@ mod tests {
         "#;
         let entities = r#"[]"#;
 
-        is_authorized(principal, action, resource, context, policies, entities);
+        let result = is_authorized(principal, action, resource, context, policies, entities);
+        let json: serde_json::Value = serde_json::from_str(&result).unwrap();
+
+        assert_eq!(json["code"], 102);
     }
 
     #[test]
-    #[should_panic(expected = "resource parse error")]
     fn test_is_authorized_resource_err() {
         let principal = r#"User::"alice""#;
         let action = r#"Action::"read""#;
@@ -163,11 +234,13 @@ mod tests {
         "#;
         let entities = r#"[]"#;
 
-        is_authorized(principal, action, resource, context, policies, entities);
+        let result = is_authorized(principal, action, resource, context, policies, entities);
+        let json: serde_json::Value = serde_json::from_str(&result).unwrap();
+
+        assert_eq!(json["code"], 103);
     }
 
     #[test]
-    #[should_panic(expected = "context parse error")]
     fn test_is_authorized_context_err() {
         let principal = r#"User::"alice""#;
         let action = r#"Action::"read""#;
@@ -182,11 +255,13 @@ mod tests {
         "#;
         let entities = r#"[]"#;
 
-        is_authorized(principal, action, resource, context, policies, entities);
+        let result = is_authorized(principal, action, resource, context, policies, entities);
+        let json: serde_json::Value = serde_json::from_str(&result).unwrap();
+
+        assert_eq!(json["code"], 104);
     }
 
     #[test]
-    #[should_panic(expected = "policies parse error")]
     fn test_is_authorized_policies_err() {
         let principal = r#"User::"alice""#;
         let action = r#"Action::"read""#;
@@ -201,11 +276,13 @@ mod tests {
         "#;
         let entities = r#"[]"#;
 
-        is_authorized(principal, action, resource, context, policies, entities);
+        let result = is_authorized(principal, action, resource, context, policies, entities);
+        let json: serde_json::Value = serde_json::from_str(&result).unwrap();
+
+        assert_eq!(json["code"], 105);
     }
 
     #[test]
-    #[should_panic(expected = "entities parse error")]
     fn test_is_authorized_entities_err() {
         let principal = r#"User::"alice""#;
         let action = r#"Action::"read""#;
@@ -220,7 +297,10 @@ mod tests {
         "#;
         let entities = r#"{}"#;
 
-        is_authorized(principal, action, resource, context, policies, entities);
+        let result = is_authorized(principal, action, resource, context, policies, entities);
+        let json: serde_json::Value = serde_json::from_str(&result).unwrap();
+
+        assert_eq!(json["code"], 106);
     }
 
     #[test]
@@ -473,9 +553,6 @@ mod tests {
         "#;
 
         let result = validate(schema, policy);
-        println!("---- result:");
-        println!("{}", result);
-        println!("---- result:");
 
         assert_eq!(
             result,
@@ -485,7 +562,6 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "schema_json parse error")]
     fn test_validate_schema_json_err() {
         let schema = r#"
             {
@@ -609,11 +685,10 @@ mod tests {
 
         let result = validate(schema, policy);
 
-        assert_eq!(result, "no errors or warnings".to_string());
+        assert_eq!(result, "schema_json parse error".to_string());
     }
 
     #[test]
-    #[should_panic(expected = "schema parse error")]
     fn test_validate_schema_err() {
         let schema = r#"
             {
@@ -736,11 +811,10 @@ mod tests {
 
         let result = validate(schema, policy);
 
-        assert_eq!(result, "no errors or warnings".to_string());
+        assert_eq!(result, "schema parse error".to_string());
     }
 
     #[test]
-    #[should_panic(expected = "policy parse error")]
     fn test_validate_policy_err() {
         let schema = r#"
             {
@@ -864,6 +938,6 @@ mod tests {
 
         let result = validate(schema, policy);
 
-        assert_eq!(result, "no errors or warnings".to_string());
+        assert_eq!(result, "policy parse error".to_string());
     }
 }
