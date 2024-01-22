@@ -25,71 +25,77 @@ pub fn is_authorized(
     policies_str: &str,
     entities_str: &str,
 ) -> String {
-    let principal = EntityUid::from_str(principal_str);
-    if principal.is_err() {
-        return json!({
-            "code": 101,
-            "message": "principal parse error"
-        })
-        .to_string();
-    }
+    let principal = match EntityUid::from_str(principal_str) {
+        Ok(principal) => principal,
+        Err(err) => {
+            return json!({
+                "code": 101,
+                "message": format!("[PrincipalErr]: {}", err),
+            })
+            .to_string();
+        }
+    };
 
-    let action = EntityUid::from_str(action_str);
-    if action.is_err() {
-        return json!({
-            "code": 102,
-            "message": "action parse error"
-        })
-        .to_string();
-    }
+    let action = match EntityUid::from_str(action_str) {
+        Ok(action) => action,
+        Err(err) => {
+            return json!({
+                "code": 102,
+                "message": format!("[ActionErr]: {}", err),
+            })
+            .to_string();
+        }
+    };
 
-    let resource = EntityUid::from_str(resource_str);
-    if resource.is_err() {
-        return json!({
-            "code": 103,
-            "message": "resource parse error"
-        })
-        .to_string();
-    }
+    let resource = match EntityUid::from_str(resource_str) {
+        Ok(resource) => resource,
+        Err(err) => {
+            return json!({
+                "code": 103,
+                "message": format!("[ResourceErr]: {}", err),
+            })
+            .to_string();
+        }
+    };
 
-    let context = Context::from_json_str(context_str, None);
-    if context.is_err() {
-        return json!({
-            "code": 104,
-            "message": "context parse error"
-        })
-        .to_string();
-    }
+    let context = match Context::from_json_str(context_str, None) {
+        Ok(context) => context,
+        Err(err) => {
+            return json!({
+                "code": 104,
+                "message": format!("[ContextErr]: {}", err),
+            })
+            .to_string();
+        }
+    };
 
-    let policies = PolicySet::from_str(policies_str);
-    if policies.is_err() {
-        return json!({
-            "code": 105,
-            "message": "policies parse error"
-        })
-        .to_string();
-    }
+    let policies = match PolicySet::from_str(policies_str) {
+        Ok(policies) => policies,
+        Err(err) => {
+            return json!({
+                "code": 105,
+                "message": format!("[PoliciesErr]: {}", err),
+            })
+            .to_string();
+        }
+    };
 
-    let entities = Entities::from_json_str(entities_str, None);
-    if entities.is_err() {
-        return json!({
-            "code": 106,
-            "message": "entities parse error"
-        })
-        .to_string();
-    }
+    let entities = match Entities::from_json_str(entities_str, None) {
+        Ok(entities) => entities,
+        Err(err) => {
+            return json!({
+                "code": 106,
+                "message": format!("[EntitiesErr]: {}", err),
+            })
+            .to_string();
+        }
+    };
 
-    let request = Request::new(
-        Some(principal.unwrap()),
-        Some(action.unwrap()),
-        Some(resource.unwrap()),
-        context.unwrap(),
-        None,
-    )
-    .unwrap();
+    let request =
+        Request::new(Some(principal), Some(action), Some(resource), context, None).unwrap();
 
     let authorizer = Authorizer::new();
-    let response = authorizer.is_authorized(&request, &policies.unwrap(), &entities.unwrap());
+    let response = authorizer.is_authorized(&request, &policies, &entities);
 
     // change response to string
     let decision = response.decision();
@@ -121,24 +127,30 @@ pub fn is_authorized(
 
 #[wasm_bindgen(js_name = "validate")]
 pub fn validate(schema_str: &str, policy_str: &str) -> String {
-    let schema_json = serde_json::from_str(schema_str);
-    if schema_json.is_err() {
-        return "schema_json parse error".to_string();
-    }
+    let schema_json = match serde_json::from_str(schema_str) {
+        Ok(schema_json) => schema_json,
+        Err(err) => {
+            return format!("[SchemaJsonErr]: {}", err);
+        }
+    };
 
-    let schema = Schema::from_json_value(schema_json.unwrap());
-    if schema.is_err() {
-        return "schema parse error".to_string();
-    }
+    let schema = match Schema::from_json_value(schema_json) {
+        Ok(schema) => schema,
+        Err(err) => {
+            return format!("[SchemaErr]: {}", err);
+        }
+    };
 
-    let policy = PolicySet::from_str(policy_str);
-    if policy.is_err() {
-        return "policy parse error".to_string();
-    }
+    let policy = match PolicySet::from_str(policy_str) {
+        Ok(policy) => policy,
+        Err(err) => {
+            return format!("[PolicyErr]: {}", err);
+        }
+    };
 
-    let validator = Validator::new(schema.unwrap());
+    let validator = Validator::new(schema);
 
-    let result = validator.validate(&policy.unwrap(), ValidationMode::default());
+    let result = validator.validate(&policy, ValidationMode::default());
 
     result.to_string()
 }
@@ -196,6 +208,7 @@ mod tests {
         let json: serde_json::Value = serde_json::from_str(&result).unwrap();
 
         assert_eq!(json["code"], 101);
+        assert_eq!(json["message"], "[PrincipalErr]: unexpected token `:`");
     }
 
     #[test]
@@ -217,6 +230,7 @@ mod tests {
         let json: serde_json::Value = serde_json::from_str(&result).unwrap();
 
         assert_eq!(json["code"], 102);
+        assert_eq!(json["message"], "[ActionErr]: unexpected token `:`");
     }
 
     #[test]
@@ -238,6 +252,7 @@ mod tests {
         let json: serde_json::Value = serde_json::from_str(&result).unwrap();
 
         assert_eq!(json["code"], 103);
+        assert_eq!(json["message"], "[ResourceErr]: unexpected token `:`");
     }
 
     #[test]
@@ -259,6 +274,10 @@ mod tests {
         let json: serde_json::Value = serde_json::from_str(&result).unwrap();
 
         assert_eq!(json["code"], 104);
+        assert_eq!(
+            json["message"],
+            "[ContextErr]: expression is not a record: `[]`"
+        );
     }
 
     #[test]
@@ -280,6 +299,7 @@ mod tests {
         let json: serde_json::Value = serde_json::from_str(&result).unwrap();
 
         assert_eq!(json["code"], 105);
+        assert_eq!(json["message"], "[PoliciesErr]: unexpected token `:`");
     }
 
     #[test]
@@ -301,6 +321,7 @@ mod tests {
         let json: serde_json::Value = serde_json::from_str(&result).unwrap();
 
         assert_eq!(json["code"], 106);
+        assert_eq!(json["message"], "[EntitiesErr]: error during entity deserialization: invalid type: map, expected a sequence at line 1 column 0");
     }
 
     #[test]
@@ -427,7 +448,7 @@ mod tests {
 
         let result = validate(schema, policy);
 
-        assert_eq!(result, "no errors or warnings".to_string());
+        assert_eq!(result, "no errors or warnings");
     }
 
     #[test]
@@ -557,7 +578,6 @@ mod tests {
         assert_eq!(
             result,
             "validation error on policy `policy0`: unrecognized entity type `PhotoApp::UserGroup1`"
-                .to_string()
         );
     }
 
@@ -685,7 +705,10 @@ mod tests {
 
         let result = validate(schema, policy);
 
-        assert_eq!(result, "schema_json parse error".to_string());
+        assert_eq!(
+            result,
+            "[SchemaJsonErr]: expected `,` or `}` at line 16 column 25"
+        );
     }
 
     #[test]
@@ -811,7 +834,10 @@ mod tests {
 
         let result = validate(schema, policy);
 
-        assert_eq!(result, "schema parse error".to_string());
+        assert_eq!(
+            result,
+            "[SchemaErr]: failed to parse schema: missing field `type`"
+        );
     }
 
     #[test]
@@ -938,6 +964,6 @@ mod tests {
 
         let result = validate(schema, policy);
 
-        assert_eq!(result, "policy parse error".to_string());
+        assert_eq!(result, "[PolicyErr]: unexpected token `:`");
     }
 }
