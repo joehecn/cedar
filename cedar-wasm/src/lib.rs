@@ -3,7 +3,8 @@
 use wasm_bindgen::prelude::wasm_bindgen;
 
 use cedar_policy::{
-    Authorizer, Context, Entities, EntityUid, PolicySet, Request, Schema, ValidationMode, Validator,
+    Authorizer, Context, Entities, EntityUid, Policy, PolicySet, Request, Schema, ValidationMode,
+    Validator,
 };
 
 use serde_json::json;
@@ -130,21 +131,33 @@ pub fn validate(schema_str: &str, policy_str: &str) -> String {
     let schema_json = match serde_json::from_str(schema_str) {
         Ok(schema_json) => schema_json,
         Err(err) => {
-            return format!("[SchemaJsonErr]: {}", err);
+            return json!({
+                "code": 201,
+                "message": format!("[SchemaJsonErr]: {}", err),
+            })
+            .to_string();
         }
     };
 
     let schema = match Schema::from_json_value(schema_json) {
         Ok(schema) => schema,
         Err(err) => {
-            return format!("[SchemaErr]: {}", err);
+            return json!({
+                "code": 202,
+                "message": format!("[SchemaErr]: {}", err),
+            })
+            .to_string();
         }
     };
 
     let policy = match PolicySet::from_str(policy_str) {
         Ok(policy) => policy,
         Err(err) => {
-            return format!("[PolicyErr]: {}", err);
+            return json!({
+                "code": 203,
+                "message": format!("[PolicyErr]: {}", err),
+            })
+            .to_string();
         }
     };
 
@@ -152,7 +165,65 @@ pub fn validate(schema_str: &str, policy_str: &str) -> String {
 
     let result = validator.validate(&policy, ValidationMode::default());
 
-    result.to_string()
+    // result.to_string()
+    json!({
+        "code": 0,
+        "data": format!("{}", result),
+    })
+    .to_string()
+}
+
+#[wasm_bindgen(js_name = "policyToJson")]
+pub fn policy_to_json(policy_str: &str) -> String {
+    let policy = match Policy::from_str(policy_str) {
+        Ok(policy) => policy,
+        Err(err) => {
+            return json!({
+                "code": 301,
+                "message": format!("[PolicyErr]: {}", err),
+            })
+            .to_string();
+        }
+    };
+
+    let policy_json = policy.to_json().unwrap();
+
+    json!({
+        "code": 0,
+        "data": policy_json,
+    })
+    .to_string()
+}
+
+#[wasm_bindgen(js_name = "policyFromJson")]
+pub fn policy_from_json(policy_str: &str) -> String {
+    let policy_json = match serde_json::from_str(policy_str) {
+        Ok(policy_json) => policy_json,
+        Err(err) => {
+            return json!({
+                "code": 401,
+                "message": format!("[PolicyJsonErr]: {}", err),
+            })
+            .to_string();
+        }
+    };
+
+    let policy = match Policy::from_json(None, policy_json) {
+        Ok(policy) => policy,
+        Err(err) => {
+            return json!({
+                "code": 402,
+                "message": format!("[PolicyErr]: {}", err),
+            })
+            .to_string();
+        }
+    };
+
+    json!({
+        "code": 0,
+        "data": policy.to_string(),
+    })
+    .to_string()
 }
 
 #[cfg(test)]
@@ -184,6 +255,7 @@ mod tests {
         let json: serde_json::Value = serde_json::from_str(&result).unwrap();
         let data = json["data"].clone();
 
+        assert_eq!(json["code"], 0);
         assert_eq!(data["decision"], "Allow");
         assert_eq!(data["reasons"], serde_json::json!(["policy0"]));
         assert_eq!(data["errors"], serde_json::json!([]));
@@ -447,8 +519,10 @@ mod tests {
         "#;
 
         let result = validate(schema, policy);
+        let json: serde_json::Value = serde_json::from_str(&result).unwrap();
 
-        assert_eq!(result, "no errors or warnings");
+        assert_eq!(json["code"], 0);
+        assert_eq!(json["data"], "no errors or warnings");
     }
 
     #[test]
@@ -574,9 +648,11 @@ mod tests {
         "#;
 
         let result = validate(schema, policy);
+        let json: serde_json::Value = serde_json::from_str(&result).unwrap();
 
+        assert_eq!(json["code"], 0);
         assert_eq!(
-            result,
+            json["data"],
             "validation error on policy `policy0`: unrecognized entity type `PhotoApp::UserGroup1`"
         );
     }
@@ -704,9 +780,11 @@ mod tests {
         "#;
 
         let result = validate(schema, policy);
+        let json: serde_json::Value = serde_json::from_str(&result).unwrap();
 
+        assert_eq!(json["code"], 201);
         assert_eq!(
-            result,
+            json["message"],
             "[SchemaJsonErr]: expected `,` or `}` at line 16 column 25"
         );
     }
@@ -833,9 +911,11 @@ mod tests {
         "#;
 
         let result = validate(schema, policy);
+        let json: serde_json::Value = serde_json::from_str(&result).unwrap();
 
+        assert_eq!(json["code"], 202);
         assert_eq!(
-            result,
+            json["message"],
             "[SchemaErr]: failed to parse schema: missing field `type`"
         );
     }
@@ -963,7 +1043,85 @@ mod tests {
         "#;
 
         let result = validate(schema, policy);
+        let json: serde_json::Value = serde_json::from_str(&result).unwrap();
 
-        assert_eq!(result, "[PolicyErr]: unexpected token `:`");
+        assert_eq!(json["code"], 203);
+        assert_eq!(json["message"], "[PolicyErr]: unexpected token `:`");
+    }
+
+    #[test]
+    fn test_policy_to_json() {
+        let policy = r#"
+            permit(
+                principal in PhotoApp::UserGroup::"janeFriends",
+                action in [PhotoApp::Action::"viewPhoto", PhotoApp::Action::"listPhotos"], 
+                resource in PhotoApp::Album::"janeTrips"
+            );
+        "#;
+
+        let result = policy_to_json(policy);
+        let json: serde_json::Value = serde_json::from_str(&result).unwrap();
+
+        assert_eq!(json["code"], 0);
+        assert_eq!(
+            json["data"].to_string(),
+            "{\"effect\":\"permit\",\"principal\":{\"op\":\"in\",\"entity\":{\"type\":\"PhotoApp::UserGroup\",\"id\":\"janeFriends\"}},\"action\":{\"op\":\"in\",\"entities\":[{\"type\":\"PhotoApp::Action\",\"id\":\"viewPhoto\"},{\"type\":\"PhotoApp::Action\",\"id\":\"listPhotos\"}]},\"resource\":{\"op\":\"in\",\"entity\":{\"type\":\"PhotoApp::Album\",\"id\":\"janeTrips\"}},\"conditions\":[]}"
+        );
+    }
+
+    #[test]
+    fn test_policy_to_json_err() {
+        let policy = r#"
+            permit(
+                principal in PhotoApp:UserGroup::"janeFriends",
+                action in [PhotoApp::Action::"viewPhoto", PhotoApp::Action::"listPhotos"], 
+                resource in PhotoApp::Album::"janeTrips"
+            );
+        "#;
+
+        let result = policy_to_json(policy);
+        let json: serde_json::Value = serde_json::from_str(&result).unwrap();
+
+        assert_eq!(json["code"], 301);
+        assert_eq!(json["message"], "[PolicyErr]: unexpected token `:`");
+    }
+
+    #[test]
+    fn test_policy_from_json() {
+        let policy = "{\"effect\":\"permit\",\"principal\":{\"op\":\"in\",\"entity\":{\"type\":\"PhotoApp::UserGroup\",\"id\":\"janeFriends\"}},\"action\":{\"op\":\"in\",\"entities\":[{\"type\":\"PhotoApp::Action\",\"id\":\"viewPhoto\"},{\"type\":\"PhotoApp::Action\",\"id\":\"listPhotos\"}]},\"resource\":{\"op\":\"in\",\"entity\":{\"type\":\"PhotoApp::Album\",\"id\":\"janeTrips\"}},\"conditions\":[]}";
+
+        let result = policy_from_json(policy);
+        let json: serde_json::Value = serde_json::from_str(&result).unwrap();
+
+        assert_eq!(json["code"], 0);
+        assert_eq!(
+            json["data"].to_string(),
+            "\"permit(principal in PhotoApp::UserGroup::\\\"janeFriends\\\", action in [PhotoApp::Action::\\\"viewPhoto\\\", PhotoApp::Action::\\\"listPhotos\\\"], resource in PhotoApp::Album::\\\"janeTrips\\\");\""
+        );
+    }
+
+    #[test]
+    fn test_policy_from_json_policy_json_err() {
+        let policy = "{\"effect\"\"permit\",\"principal\":{\"op\":\"in\",\"entity\":{\"type\":\"PhotoApp::UserGroup\",\"id\":\"janeFriends\"}},\"action\":{\"op\":\"in\",\"entities\":[{\"type\":\"PhotoApp::Action\",\"id\":\"viewPhoto\"},{\"type\":\"PhotoApp::Action\",\"id\":\"listPhotos\"}]},\"resource\":{\"op\":\"in\",\"entity\":{\"type\":\"PhotoApp::Album\",\"id\":\"janeTrips\"}},\"conditions\":[]}";
+
+        let result = policy_from_json(policy);
+        let json: serde_json::Value = serde_json::from_str(&result).unwrap();
+
+        assert_eq!(json["code"], 401);
+        assert_eq!(
+            json["message"],
+            "[PolicyJsonErr]: expected `:` at line 1 column 10"
+        );
+    }
+
+    #[test]
+    fn test_policy_from_json_policy_err() {
+        let policy = "{\"principal\":{\"op\":\"in\",\"entity\":{\"type\":\"PhotoApp::UserGroup\",\"id\":\"janeFriends\"}},\"action\":{\"op\":\"in\",\"entities\":[{\"type\":\"PhotoApp::Action\",\"id\":\"viewPhoto\"},{\"type\":\"PhotoApp::Action\",\"id\":\"listPhotos\"}]},\"resource\":{\"op\":\"in\",\"entity\":{\"type\":\"PhotoApp::Album\",\"id\":\"janeTrips\"}},\"conditions\":[]}";
+
+        let result = policy_from_json(policy);
+        let json: serde_json::Value = serde_json::from_str(&result).unwrap();
+
+        assert_eq!(json["code"], 402);
+        assert_eq!(json["message"], "[PolicyErr]: missing field `effect`");
     }
 }
