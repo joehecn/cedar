@@ -128,22 +128,11 @@ pub fn is_authorized(
 
 #[wasm_bindgen(js_name = "validate")]
 pub fn validate(schema_str: &str, policy_str: &str) -> String {
-    let schema_json = match serde_json::from_str(schema_str) {
-        Ok(schema_json) => schema_json,
-        Err(err) => {
-            return json!({
-                "code": 201,
-                "message": format!("[SchemaJsonErr]: {}", err),
-            })
-            .to_string();
-        }
-    };
-
-    let schema = match Schema::from_json_value(schema_json) {
+    let schema = match Schema::from_str(schema_str) {
         Ok(schema) => schema,
         Err(err) => {
             return json!({
-                "code": 202,
+                "code": 201,
                 "message": format!("[SchemaErr]: {}", err),
             })
             .to_string();
@@ -154,7 +143,7 @@ pub fn validate(schema_str: &str, policy_str: &str) -> String {
         Ok(policy) => policy,
         Err(err) => {
             return json!({
-                "code": 203,
+                "code": 202,
                 "message": format!("[PolicyErr]: {}", err),
             })
             .to_string();
@@ -165,7 +154,6 @@ pub fn validate(schema_str: &str, policy_str: &str) -> String {
 
     let result = validator.validate(&policy, ValidationMode::default());
 
-    // result.to_string()
     json!({
         "code": 0,
         "data": format!("{}", result),
@@ -224,6 +212,26 @@ pub fn policy_from_json(policy_str: &str) -> String {
         "data": policy.to_string(),
     })
     .to_string()
+}
+
+#[wasm_bindgen(js_name = "validateSchema")]
+pub fn validate_schema(schema_str: &str) -> String {
+    match Schema::from_str(schema_str) {
+        Ok(_) => {
+            return json!({
+                "code": 0,
+                "data": "no errors or warnings",
+            })
+            .to_string();
+        }
+        Err(err) => {
+            return json!({
+                "code": 501,
+                "message": format!("[SchemaErr]: {}", err),
+            })
+            .to_string();
+        }
+    };
 }
 
 #[cfg(test)]
@@ -774,7 +782,7 @@ mod tests {
         let policy = r#"
             permit(
                 principal in PhotoApp::UserGroup::"janeFriends",
-                action in [PhotoApp::Action::"viewPhoto", PhotoApp::Action::"listPhotos"], 
+                action in [PhotoApp::Action::"viewPhoto", PhotoApp::Action::"listPhotos"],
                 resource in PhotoApp::Album::"janeTrips"
             );
         "#;
@@ -785,12 +793,12 @@ mod tests {
         assert_eq!(json["code"], 201);
         assert_eq!(
             json["message"],
-            "[SchemaJsonErr]: expected `,` or `}` at line 16 column 25"
+            "[SchemaErr]: failed to parse schema: expected `,` or `}` at line 16 column 25"
         );
     }
 
     #[test]
-    fn test_validate_schema_err() {
+    fn test_validate_on_schema_err() {
         let schema = r#"
             {
                 "PhotoApp": {
@@ -913,10 +921,10 @@ mod tests {
         let result = validate(schema, policy);
         let json: serde_json::Value = serde_json::from_str(&result).unwrap();
 
-        assert_eq!(json["code"], 202);
+        assert_eq!(json["code"], 201);
         assert_eq!(
             json["message"],
-            "[SchemaErr]: failed to parse schema: missing field `type`"
+            "[SchemaErr]: failed to parse schema: missing field `type` at line 14 column 25"
         );
     }
 
@@ -1045,7 +1053,7 @@ mod tests {
         let result = validate(schema, policy);
         let json: serde_json::Value = serde_json::from_str(&result).unwrap();
 
-        assert_eq!(json["code"], 203);
+        assert_eq!(json["code"], 202);
         assert_eq!(json["message"], "[PolicyErr]: unexpected token `:`");
     }
 
@@ -1123,5 +1131,252 @@ mod tests {
 
         assert_eq!(json["code"], 402);
         assert_eq!(json["message"], "[PolicyErr]: missing field `effect`");
+    }
+
+    #[test]
+    fn test_validate_schema_ok() {
+        let schema = r#"
+            {
+                "PhotoApp": {
+                    "commonTypes": {
+                        "PersonType": {
+                            "type": "Record",
+                            "attributes": {
+                                "age": {
+                                    "type": "Long"
+                                },
+                                "name": {
+                                    "type": "String"
+                                }
+                            }
+                        },
+                        "ContextType": {
+                            "type": "Record",
+                            "attributes": {
+                                "ip": {
+                                    "type": "Extension",
+                                    "name": "ipaddr"
+                                }
+                            }
+                        }
+                    },
+                    "entityTypes": {
+                        "User": {
+                            "shape": {
+                                "type": "Record",
+                                "attributes": {
+                                    "employeeId": {
+                                        "type": "String",
+                                        "required": true
+                                    },
+                                    "personInfo": {
+                                        "type": "PersonType"
+                                    }
+                                }
+                            },
+                            "memberOfTypes": [
+                                "UserGroup"
+                            ]
+                        },
+                        "UserGroup": {
+                            "shape": {
+                                "type": "Record",
+                                "attributes": {}
+                            }
+                        },
+                        "Photo": {
+                            "shape": {
+                                "type": "Record",
+                                "attributes": {}
+                            },
+                            "memberOfTypes": [
+                                "Album"
+                            ]
+                        },
+                        "Album": {
+                            "shape": {
+                                "type": "Record",
+                                "attributes": {}
+                            }
+                        }
+                    },
+                    "actions": {
+                        "viewPhoto": {
+                            "appliesTo": {
+                                "principalTypes": [
+                                    "User",
+                                    "UserGroup"
+                                ],
+                                "resourceTypes": [
+                                    "Photo"
+                                ],
+                                "context": {
+                                    "type": "ContextType"
+                                }
+                            }
+                        },
+                        "createPhoto": {
+                            "appliesTo": {
+                                "principalTypes": [
+                                    "User",
+                                    "UserGroup"
+                                ],
+                                "resourceTypes": [
+                                    "Photo"
+                                ],
+                                "context": {
+                                    "type": "ContextType"
+                                }
+                            }
+                        },
+                        "listPhotos": {
+                            "appliesTo": {
+                                "principalTypes": [
+                                    "User",
+                                    "UserGroup"
+                                ],
+                                "resourceTypes": [
+                                    "Photo"
+                                ],
+                                "context": {
+                                    "type": "ContextType"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        "#;
+
+        let result = validate_schema(schema);
+        let json: serde_json::Value = serde_json::from_str(&result).unwrap();
+
+        assert_eq!(json["code"], 0);
+        assert_eq!(json["data"], "no errors or warnings");
+    }
+
+    #[test]
+    fn test_validate_schema_err() {
+        let schema = r#"
+            {
+                "PhotoApp": {
+                    "commonTypes": {
+                        "PersonType": {
+                            "type": "Record",
+                            "attributes": {
+                                "age": {
+                                    "type": "Long"
+                                },
+                                "name": {
+                                    "type": "String"
+                                }
+                            }
+                        }
+                        "ContextType": {
+                            "type": "Record",
+                            "attributes": {
+                                "ip": {
+                                    "type": "Extension",
+                                    "name": "ipaddr"
+                                }
+                            }
+                        }
+                    },
+                    "entityTypes": {
+                        "User": {
+                            "shape": {
+                                "type": "Record",
+                                "attributes": {
+                                    "employeeId": {
+                                        "type": "String",
+                                        "required": true
+                                    },
+                                    "personInfo": {
+                                        "type": "PersonType"
+                                    }
+                                }
+                            },
+                            "memberOfTypes": [
+                                "UserGroup"
+                            ]
+                        },
+                        "UserGroup": {
+                            "shape": {
+                                "type": "Record",
+                                "attributes": {}
+                            }
+                        },
+                        "Photo": {
+                            "shape": {
+                                "type": "Record",
+                                "attributes": {}
+                            },
+                            "memberOfTypes": [
+                                "Album"
+                            ]
+                        },
+                        "Album": {
+                            "shape": {
+                                "type": "Record",
+                                "attributes": {}
+                            }
+                        }
+                    },
+                    "actions": {
+                        "viewPhoto": {
+                            "appliesTo": {
+                                "principalTypes": [
+                                    "User",
+                                    "UserGroup"
+                                ],
+                                "resourceTypes": [
+                                    "Photo"
+                                ],
+                                "context": {
+                                    "type": "ContextType"
+                                }
+                            }
+                        },
+                        "createPhoto": {
+                            "appliesTo": {
+                                "principalTypes": [
+                                    "User",
+                                    "UserGroup"
+                                ],
+                                "resourceTypes": [
+                                    "Photo"
+                                ],
+                                "context": {
+                                    "type": "ContextType"
+                                }
+                            }
+                        },
+                        "listPhotos": {
+                            "appliesTo": {
+                                "principalTypes": [
+                                    "User",
+                                    "UserGroup"
+                                ],
+                                "resourceTypes": [
+                                    "Photo"
+                                ],
+                                "context": {
+                                    "type": "ContextType"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        "#;
+
+        let result = validate_schema(schema);
+        let json: serde_json::Value = serde_json::from_str(&result).unwrap();
+
+        assert_eq!(json["code"], 501);
+        assert_eq!(
+            json["message"],
+            "[SchemaErr]: failed to parse schema: expected `,` or `}` at line 16 column 25"
+        );
     }
 }
