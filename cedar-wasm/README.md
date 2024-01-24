@@ -7,7 +7,14 @@ An implementation of various cedar functions to enable developers to write types
 npm i @joehecnnodejs/cedar-wasm
 ```
 ```js
-import { getCedarVersion, isAuthorized, validate } from "@joehecnnodejs/cedar-wasm";
+import {
+  getCedarVersion,
+  isAuthorized,
+  validate,
+  policyToJson,
+  policyFromJson,
+  validateSchema
+} from "@joehecnnodejs/cedar-wasm";
 ```
 
 ## web
@@ -15,7 +22,14 @@ import { getCedarVersion, isAuthorized, validate } from "@joehecnnodejs/cedar-wa
 npm i @joehecnweb/cedar-wasm
 ```
 ```js
-import { getCedarVersion, isAuthorized, validate } from '@joehecnweb/cedar-wasm'
+import {
+  getCedarVersion,
+  isAuthorized,
+  validate,
+  policyToJson,
+  policyFromJson,
+  validateSchema
+} from '@joehecnweb/cedar-wasm'
 ```
 
 ## vite
@@ -25,127 +39,207 @@ See [vite-plugin-wasm](https://github.com/Menci/vite-plugin-wasm)
 ```js
 ...
 /* getCedarVersion */
-const version = getCedarVersion()
+const version = getCedarVersion();
 // { version: '3.0.0' }
-console.log({ version })
+console.log({ version });
 
 /* isAuthorized */
-const principal = 'User::"alice"'
-const action = 'Action::"read"'
-const resource = 'Photo::"foo.jpg"'
-const context = '{}'
+const principal = 'User::"alice"';
+const action = 'Action::"read"';
+const resource = 'Photo::"foo.jpg"';
+const context = "{}";
 const policies = `
-    permit(
-      principal == User::"alice",
-      action    in [Action::"read", Action::"edit"],
-      resource  == Photo::"foo.jpg"
-    );
-  `
-const entities = '[]'
-const result = isAuthorized(principal, action, resource, context, policies, entities)
-// { code: 0, data: { decision: 'Allow', reasons: [ 'policy0' ], errors: [] } }
-console.log(JSON.parse(result))
+  permit(
+    principal == User::"alice",
+    action    in [Action::"read", Action::"edit"],
+    resource  == Photo::"foo.jpg"
+  );
+`;
+const entities = "[]";
+try {
+  const result = isAuthorized(
+    principal,
+    action,
+    resource,
+    context,
+    policies,
+    entities
+  );
+  // {
+  //   code: 0,
+  //   data: { decision: 'Allow', reasons: ['policy0'], errors: [] }
+  // }
+  console.log(JSON.parse(result));
+} catch (error) {
+  console.log(error);
+}
 
 /* validate */
 const schema = JSON.stringify({
-  PhotoApp: {
-    commonTypes: {
-      PersonType: {
-        type: 'Record',
-        attributes: {
-          age: {
-            type: 'Long'
+  "PhotoApp": {
+    "commonTypes": {
+      "PersonType": {
+        "type": "Record",
+        "attributes": {
+          "age": {
+            "type": "Long"
           },
-          name: {
-            type: 'String'
+          "name": {
+            "type": "String"
           }
         }
       },
-      ContextType: {
-        type: 'Record',
-        attributes: {
-          ip: {
-            type: 'Extension',
-            name: 'ipaddr'
+      "ContextType": {
+        "type": "Record",
+        "attributes": {
+          "ip": {
+            "type": "Extension",
+            "name": "ipaddr"
           }
         }
       }
     },
-    entityTypes: {
-      User: {
-        shape: {
-          type: 'Record',
-          attributes: {
-            employeeId: {
-              type: 'String',
-              required: true
+    "entityTypes": {
+      "User": {
+        "shape": {
+          "type": "Record",
+          "attributes": {
+            "employeeId": {
+              "type": "String",
+              "required": true
             },
-            personInfo: {
-              type: 'PersonType'
+            "personInfo": {
+              "type": "PersonType"
             }
           }
         },
-        memberOfTypes: ['UserGroup']
+        "memberOfTypes": [
+          "UserGroup"
+        ]
       },
-      UserGroup: {
-        shape: {
-          type: 'Record',
-          attributes: {}
+      "UserGroup": {
+        "shape": {
+          "type": "Record",
+          "attributes": {}
         }
       },
-      Photo: {
-        shape: {
-          type: 'Record',
-          attributes: {}
+      "Photo": {
+        "shape": {
+          "type": "Record",
+          "attributes": {}
         },
-        memberOfTypes: ['Album']
+        "memberOfTypes": [
+          "Album"
+        ]
       },
-      Album: {
-        shape: {
-          type: 'Record',
-          attributes: {}
+      "Album": {
+        "shape": {
+          "type": "Record",
+          "attributes": {}
         }
       }
     },
-    actions: {
-      viewPhoto: {
-        appliesTo: {
-          principalTypes: ['User', 'UserGroup'],
-          resourceTypes: ['Photo'],
-          context: {
-            type: 'ContextType'
+    "actions": {
+      "viewPhoto": {
+        "appliesTo": {
+          "principalTypes": [
+            "User",
+            "UserGroup"
+          ],
+          "resourceTypes": [
+            "Photo"
+          ],
+          "context": {
+            "type": "ContextType"
           }
         }
       },
-      createPhoto: {
-        appliesTo: {
-          principalTypes: ['User', 'UserGroup'],
-          resourceTypes: ['Photo'],
-          context: {
-            type: 'ContextType'
+      "createPhoto": {
+        "appliesTo": {
+          "principalTypes": [
+            "User",
+            "UserGroup"
+          ],
+          "resourceTypes": [
+            "Photo"
+          ],
+          "context": {
+            "type": "ContextType"
           }
         }
       },
-      listPhotos: {
-        appliesTo: {
-          principalTypes: ['User', 'UserGroup'],
-          resourceTypes: ['Photo'],
-          context: {
-            type: 'ContextType'
+      "listPhotos": {
+        "appliesTo": {
+          "principalTypes": [
+            "User",
+            "UserGroup"
+          ],
+          "resourceTypes": [
+            "Photo"
+          ],
+          "context": {
+            "type": "ContextType"
           }
         }
       }
     }
   }
-})
-const policie = `
-    permit(
-      principal in PhotoApp::UserGroup::"janeFriends",
-      action    in [PhotoApp::Action::"viewPhoto", PhotoApp::Action::"listPhotos"],
-      resource  in PhotoApp::Album::"janeTrips"
-    );
-  `
-const validationResult = validate(schema, policie)
-// { validationResult: 'no errors or warnings' }
-console.log({ validationResult })
+});
+const policy = `
+  permit(
+    principal in PhotoApp::UserGroup::"janeFriends",
+    action in [PhotoApp::Action::"viewPhoto", PhotoApp::Action::"listPhotos"],
+    resource in PhotoApp::Album::"janeTrips"
+  );
+`;
+const validationResult = validate(schema, policy);
+// { code: 0, data: 'no errors or warnings' }
+console.log(JSON.parse(validationResult));
+
+/* policyToJson */
+const policyJson = policyToJson(policy);
+// {
+//   "code": 0,
+//     "data": {
+//     "effect": "permit",
+//       "principal": {
+//       "op": "in",
+//         "entity": {
+//         "type": "PhotoApp::UserGroup",
+//           "id": "janeFriends"
+//       }
+//     },
+//     "action": {
+//       "op": "in",
+//         "entities": [
+//           {
+//             "type": "PhotoApp::Action",
+//             "id": "viewPhoto"
+//           },
+//           {
+//             "type": "PhotoApp::Action",
+//             "id": "listPhotos"
+//           }
+//         ]
+//     },
+//     "resource": {
+//       "op": "in",
+//         "entity": {
+//         "type": "PhotoApp::Album",
+//           "id": "janeTrips"
+//       }
+//     },
+//     "conditions": []
+//   }
+// }
+const json = JSON.parse(policyJson);
+
+/* policyFromJson */
+const policy2 = policyFromJson(JSON.stringify(json.data));
+console.log(JSON.parse(policy2));
+
+/* validateSchema */
+const res = validateSchema(schema);
+// { code: 0, data: 'no errors or warnings' }
+console.log(JSON.parse(res));
 ```
