@@ -43,11 +43,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - For the `partial-eval` experimental feature: make the return values of
   `RequestBuilder`'s `principal`, `action`, `resource`, `context` and
   `schema` functions `#[must_use]`. (#502)
+- For the `partial-eval` experimental feature: make `RequestBuilder::schema`
+return a `RequestBuilder<&Schema>` so the `RequestBuilder<&Schema>::build`
+method checks the request against the schema provided and the 
+`RequestBuilder<UnsetSchema>::build` method becomes infallible. (#559)
 
 ### Fixed
 
 - Action entities in the store will pass schema-based validation without requiring
   the transitive closure to be pre-computed. (#581, resolving #285)
+- Variables qualified by a namespace with a single element are correctly
+  rejected. E.g., `foo::principal` is an error and is not parsed as `principal`.
 
 ## [3.0.1] - 2023-12-21
 Cedar Language Version: 3.0.0
