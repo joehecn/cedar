@@ -2,7 +2,7 @@
 
 name = "cedar-wasm"
 edition = "2021"
-version = "3.0.910"
+version = "3.0.911"
 publish = ["brazil"]
 description = "WASM bindings and typescript types for Cedar lib"
 license = "Apache-2.0"
