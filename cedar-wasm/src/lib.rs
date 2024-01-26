@@ -92,8 +92,16 @@ pub fn is_authorized(
         }
     };
 
-    let request =
-        Request::new(Some(principal), Some(action), Some(resource), context, None).unwrap();
+    let request = match Request::new(Some(principal), Some(action), Some(resource), context, None) {
+        Ok(request) => request,
+        Err(err) => {
+            return json!({
+                "code": 107,
+                "message": format!("[RequestErr]: {}", err),
+            })
+            .to_string();
+        }
+    };
 
     let authorizer = Authorizer::new();
     let response = authorizer.is_authorized(&request, &policies, &entities);
@@ -174,7 +182,16 @@ pub fn policy_to_json(policy_str: &str) -> String {
         }
     };
 
-    let policy_json = policy.to_json().unwrap();
+    let policy_json = match policy.to_json() {
+        Ok(policy_json) => policy_json,
+        Err(err) => {
+            return json!({
+                "code": 302,
+                "message": format!("[PolicyJsonErr]: {}", err),
+            })
+            .to_string();
+        }
+    };
 
     json!({
         "code": 0,
@@ -217,13 +234,7 @@ pub fn policy_from_json(policy_str: &str) -> String {
 #[wasm_bindgen(js_name = "validateSchema")]
 pub fn validate_schema(schema_str: &str) -> String {
     match Schema::from_str(schema_str) {
-        Ok(_) => {
-            return json!({
-                "code": 0,
-                "data": "no errors or warnings",
-            })
-            .to_string();
-        }
+        Ok(_) => {}
         Err(err) => {
             return json!({
                 "code": 501,
@@ -232,6 +243,12 @@ pub fn validate_schema(schema_str: &str) -> String {
             .to_string();
         }
     };
+
+    json!({
+        "code": 0,
+        "data": "no errors or warnings",
+    })
+    .to_string()
 }
 
 #[cfg(test)]
