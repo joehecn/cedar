@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   template-linked policy. (#515, resolving #489)
 - Added `EntityId::new()` constructor (#583, resolving #553)
 - New feature for cedar-policy and cedar-policy core to allow targeting wasm
+- `AuthorizationError::id()` to get the id of the policy associated with an
+  authorization error. (#589)
 
 ### Changed
 
@@ -60,6 +62,7 @@ method checks the request against the schema provided and the
 - The entity type tested for by an `is` expression may be an identifier shared
   with a builtin variable. E.g., `... is principal` and `... is action` are now
   accepted by the Cedar parser. (#558)
+- Policies containing the literal `i64::MIN` can now be properly converted to JSON ESTs (#601, resolving #596)
 
 ## [3.0.1] - 2023-12-21
 Cedar Language Version: 3.0.0

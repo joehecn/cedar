@@ -27,7 +27,6 @@ use cedar_policy_core::ast::{
     ContextCreationError, ExprConstructionError, Integer, RestrictedExprParseError,
 }; // `ContextCreationError` is unsuitable for `pub use` because it contains internal types like `RestrictedExpr`
 use cedar_policy_core::authorizer;
-pub use cedar_policy_core::authorizer::AuthorizationError;
 use cedar_policy_core::entities::{
     self, ContextJsonDeserializationError, ContextSchema, Dereference, JsonDeserializationError,
     JsonDeserializationErrorContext,
@@ -735,6 +734,41 @@ impl Authorizer {
     }
 }
 
+/// Errors that can occur during authorization
+#[derive(Debug, Diagnostic, PartialEq, Eq, Error, Clone)]
+pub enum AuthorizationError {
+    /// An error occurred when evaluating a policy.
+    #[error("while evaluating policy `{id}`: {error}")]
+    PolicyEvaluationError {
+        /// Id of the policy with an error
+        #[doc(hidden)]
+        id: ast::PolicyID,
+        /// Underlying evaluation error
+        #[diagnostic(transparent)]
+        error: EvaluationError,
+    },
+}
+
+impl AuthorizationError {
+    /// Get the id of the erroring policy
+    pub fn id(&self) -> &PolicyId {
+        match self {
+            Self::PolicyEvaluationError { id, error: _ } => PolicyId::ref_cast(id),
+        }
+    }
+}
+
+#[doc(hidden)]
+impl From<authorizer::AuthorizationError> for AuthorizationError {
+    fn from(value: authorizer::AuthorizationError) -> Self {
+        match value {
+            authorizer::AuthorizationError::PolicyEvaluationError { id, error } => {
+                Self::PolicyEvaluationError { id, error }
+            }
+        }
+    }
+}
+
 /// Authorization response returned from the `Authorizer`
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Response {
@@ -780,7 +814,7 @@ impl From<authorizer::Diagnostics> for Diagnostics {
     fn from(diagnostics: authorizer::Diagnostics) -> Self {
         Self {
             reason: diagnostics.reason.into_iter().map(PolicyId).collect(),
-            errors: diagnostics.errors,
+            errors: diagnostics.errors.into_iter().map(Into::into).collect(),
         }
     }
 }
@@ -3922,5 +3956,102 @@ mod partial_eval_test {
         assert_eq!(a.diagnostics().errors, errors);
         assert_eq!(a.diagnostics().reason, reason);
         assert_eq!(a.residuals(), &p);
+    }
+}
+
+#[cfg(test)]
+// PANIC SAFETY: unit tests
+#[allow(clippy::unwrap_used)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_all_ints() {
+        test_single_int(0);
+        test_single_int(i64::MAX);
+        test_single_int(i64::MIN);
+        test_single_int(7);
+        test_single_int(-7);
+    }
+
+    fn test_single_int(x: i64) {
+        for i in 0..4 {
+            test_single_int_with_dashes(x, i);
+        }
+    }
+
+    fn test_single_int_with_dashes(x: i64, num_dashes: usize) {
+        let dashes = vec!['-'; num_dashes].into_iter().collect::<String>();
+        let src = format!(r#"permit(principal, action, resource) when {{ {dashes}{x} }};"#);
+        let p: Policy = src.parse().unwrap();
+        let json = p.to_json().unwrap();
+        let round_trip = Policy::from_json(None, json).unwrap();
+        let pretty_print = format!("{round_trip}");
+        assert!(pretty_print.contains(&x.to_string()));
+        if x != 0 {
+            let expected_dashes = if x < 0 { num_dashes + 1 } else { num_dashes };
+            assert_eq!(
+                pretty_print.chars().filter(|c| *c == '-').count(),
+                expected_dashes
+            );
+        }
+    }
+
+    // Serializing a valid 64-bit int that can't be represented in double precision float
+    #[test]
+    fn json_bignum_1() {
+        let src = r#"
+        permit(
+            principal,
+            action == Action::"action",
+            resource
+          ) when {
+            -9223372036854775808
+          };"#;
+        let p: Policy = src.parse().unwrap();
+        p.to_json().unwrap();
+    }
+
+    #[test]
+    fn json_bignum_1a() {
+        let src = r#"
+        permit(principal, action, resource) when { 
+            (true && (-90071992547409921)) && principal
+        };"#;
+        let p: Policy = src.parse().unwrap();
+        let v = p.to_json().unwrap();
+        let s = serde_json::to_string(&v).unwrap();
+        assert!(s.contains("90071992547409921"));
+    }
+
+    // Deserializing a valid 64-bit int that can't be represented in double precision float
+    #[test]
+    fn json_bignum_2() {
+        let src = r#"{"effect":"permit","principal":{"op":"All"},"action":{"op":"All"},"resource":{"op":"All"},"conditions":[{"kind":"when","body":{"==":{"left":{".":{"left":{"Var":"principal"},"attr":"x"}},"right":{"Value":90071992547409921}}}}]}"#;
+        let v: serde_json::Value = serde_json::from_str(src).unwrap();
+        let p = Policy::from_json(None, v).unwrap();
+        let pretty = format!("{p}");
+        // Ensure the number didn't get rounded
+        assert!(pretty.contains("90071992547409921"));
+    }
+
+    // Deserializing a valid 64-bit int that can't be represented in double precision float
+    #[test]
+    fn json_bignum_2a() {
+        let src = r#"{"effect":"permit","principal":{"op":"All"},"action":{"op":"All"},"resource":{"op":"All"},"conditions":[{"kind":"when","body":{"==":{"left":{".":{"left":{"Var":"principal"},"attr":"x"}},"right":{"Value":-9223372036854775808}}}}]}"#;
+        let v: serde_json::Value = serde_json::from_str(src).unwrap();
+        let p = Policy::from_json(None, v).unwrap();
+        let pretty = format!("{p}");
+        // Ensure the number didn't get rounded
+        assert!(pretty.contains("-9223372036854775808"));
+    }
+
+    // Deserializing a number that doesn't fit in 64 bit integer
+    // This _should_ fail, as there's no way to do this w/out loss of precision
+    #[test]
+    fn json_bignum_3() {
+        let src = r#"{"effect":"permit","principal":{"op":"All"},"action":{"op":"All"},"resource":{"op":"All"},"conditions":[{"kind":"when","body":{"==":{"left":{".":{"left":{"Var":"principal"},"attr":"x"}},"right":{"Value":9223372036854775808}}}}]}"#;
+        let v: serde_json::Value = serde_json::from_str(src).unwrap();
+        assert!(Policy::from_json(None, v).is_err());
     }
 }
