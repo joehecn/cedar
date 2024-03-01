@@ -15,6 +15,7 @@
  */
 
 use crate::ast::*;
+use crate::parser::Loc;
 use itertools::Itertools;
 use miette::Diagnostic;
 use serde::{Deserialize, Serialize};
@@ -22,6 +23,9 @@ use smol_str::SmolStr;
 use std::collections::BTreeMap;
 use std::{collections::HashMap, sync::Arc};
 use thiserror::Error;
+
+#[cfg(feature = "wasm")]
+extern crate tsify;
 
 /// Top level structure for a policy template.
 /// Contains both the AST for template, and the list of open slots in the template.
@@ -63,7 +67,7 @@ impl Template {
     /// Construct a `Template` from its components
     pub fn new(
         id: PolicyID,
-        annotations: BTreeMap<Id, SmolStr>,
+        annotations: Annotations,
         effect: Effect,
         principal_constraint: PrincipalConstraint,
         action_constraint: ActionConstraint,
@@ -123,12 +127,12 @@ impl Template {
     }
 
     /// Get data from an annotation.
-    pub fn annotation(&self, key: &Id) -> Option<&SmolStr> {
+    pub fn annotation(&self, key: &AnyId) -> Option<&Annotation> {
         self.body.annotation(key)
     }
 
     /// Get all annotation data.
-    pub fn annotations(&self) -> impl Iterator<Item = (&Id, &SmolStr)> {
+    pub fn annotations(&self) -> impl Iterator<Item = (&AnyId, &Annotation)> {
         self.body.annotations()
     }
 
@@ -340,7 +344,7 @@ impl Policy {
     pub fn from_when_clause(effect: Effect, when: Expr, id: PolicyID) -> Self {
         let t = Template::new(
             id,
-            BTreeMap::new(),
+            Annotations::new(),
             effect,
             PrincipalConstraint::any(),
             ActionConstraint::any(),
@@ -366,12 +370,12 @@ impl Policy {
     }
 
     /// Get data from an annotation.
-    pub fn annotation(&self, key: &Id) -> Option<&SmolStr> {
+    pub fn annotation(&self, key: &AnyId) -> Option<&Annotation> {
         self.template.annotation(key)
     }
 
     /// Get all annotation data.
-    pub fn annotations(&self) -> impl Iterator<Item = (&Id, &SmolStr)> {
+    pub fn annotations(&self) -> impl Iterator<Item = (&AnyId, &Annotation)> {
         self.template.annotations()
     }
 
@@ -672,12 +676,12 @@ impl StaticPolicy {
     }
 
     /// Get data from an annotation.
-    pub fn annotation(&self, key: &Id) -> Option<&SmolStr> {
+    pub fn annotation(&self, key: &AnyId) -> Option<&Annotation> {
         self.0.annotation(key)
     }
 
     /// Get all annotation data.
-    pub fn annotations(&self) -> impl Iterator<Item = (&Id, &SmolStr)> {
+    pub fn annotations(&self) -> impl Iterator<Item = (&AnyId, &Annotation)> {
         self.0.annotations()
     }
 
@@ -734,10 +738,10 @@ impl StaticPolicy {
         self.0.condition()
     }
 
-    /// Construct a `Policy` from its components
+    /// Construct a `StaticPolicy` from its components
     pub fn new(
         id: PolicyID,
-        annotations: BTreeMap<Id, SmolStr>,
+        annotations: Annotations,
         effect: Effect,
         principal_constraint: PrincipalConstraint,
         action_constraint: ActionConstraint,
@@ -789,16 +793,16 @@ impl From<StaticPolicy> for Arc<Template> {
     }
 }
 
-/// Policy datatype.
-///
-/// This will also represent the serialized form of policies on disk
-/// and on the network.
+/// Policy datatype. This is used for both templates (in which case it contains
+/// slots) and static policies (in which case it contains zero slots).
 #[derive(Serialize, Deserialize, Clone, Hash, Eq, PartialEq, Debug)]
 pub struct TemplateBody {
     /// ID of this policy
     id: PolicyID,
-    /// Annotations available for external applications, as key-value store
-    annotations: BTreeMap<Id, SmolStr>,
+    /// Annotations available for external applications, as key-value store.
+    /// Note that the keys are `AnyId`, so Cedar reserved words like `if` and `has`
+    /// are explicitly allowed as annotations.
+    annotations: Annotations,
     /// `Effect` of this policy
     effect: Effect,
     /// Head constraint for principal. This will be a boolean-valued expression:
@@ -839,12 +843,12 @@ impl TemplateBody {
     }
 
     /// Get data from an annotation.
-    pub fn annotation(&self, key: &Id) -> Option<&SmolStr> {
+    pub fn annotation(&self, key: &AnyId) -> Option<&Annotation> {
         self.annotations.get(key)
     }
 
     /// Get all annotation data.
-    pub fn annotations(&self) -> impl Iterator<Item = (&Id, &SmolStr)> {
+    pub fn annotations(&self) -> impl Iterator<Item = (&AnyId, &Annotation)> {
         self.annotations.iter()
     }
 
@@ -913,7 +917,7 @@ impl TemplateBody {
     /// Construct a `Policy` from its components
     pub fn new(
         id: PolicyID,
-        annotations: BTreeMap<Id, SmolStr>,
+        annotations: Annotations,
         effect: Effect,
         principal_constraint: PrincipalConstraint,
         action_constraint: ActionConstraint,
@@ -940,8 +944,8 @@ impl From<StaticPolicy> for TemplateBody {
 
 impl std::fmt::Display for TemplateBody {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        for (k, v) in &self.annotations {
-            writeln!(f, "@{}(\"{}\")", k, v.escape_debug())?
+        for (k, v) in self.annotations.iter() {
+            writeln!(f, "@{}(\"{}\")", k, v.val.escape_debug())?
         }
         write!(
             f,
@@ -952,6 +956,83 @@ impl std::fmt::Display for TemplateBody {
             self.resource_constraint(),
             self.non_head_constraints()
         )
+    }
+}
+
+/// Struct which holds the annotations for a policy
+#[derive(Serialize, Deserialize, Clone, Hash, Eq, PartialEq, Debug)]
+pub struct Annotations(BTreeMap<AnyId, Annotation>);
+
+impl Annotations {
+    /// Create a new empty `Annotations` (with no annotations)
+    pub fn new() -> Self {
+        Self(BTreeMap::new())
+    }
+
+    /// Get an annotation by key
+    pub fn get(&self, key: &AnyId) -> Option<&Annotation> {
+        self.0.get(key)
+    }
+
+    /// Iterate over all annotations
+    pub fn iter(&self) -> impl Iterator<Item = (&AnyId, &Annotation)> {
+        self.0.iter()
+    }
+}
+
+/// Wraps the [`BTreeMap`]` into an opaque type so we can change it later if need be
+#[derive(Debug)]
+pub struct IntoIter(std::collections::btree_map::IntoIter<AnyId, Annotation>);
+
+impl Iterator for IntoIter {
+    type Item = (AnyId, Annotation);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.next()
+    }
+}
+
+impl IntoIterator for Annotations {
+    type Item = (AnyId, Annotation);
+
+    type IntoIter = IntoIter;
+
+    fn into_iter(self) -> Self::IntoIter {
+        IntoIter(self.0.into_iter())
+    }
+}
+
+impl Default for Annotations {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl FromIterator<(AnyId, Annotation)> for Annotations {
+    fn from_iter<T: IntoIterator<Item = (AnyId, Annotation)>>(iter: T) -> Self {
+        Self(BTreeMap::from_iter(iter))
+    }
+}
+
+impl From<BTreeMap<AnyId, Annotation>> for Annotations {
+    fn from(value: BTreeMap<AnyId, Annotation>) -> Self {
+        Self(value)
+    }
+}
+
+/// Struct which holds the value of a particular annotation
+#[derive(Serialize, Deserialize, Clone, Hash, Eq, PartialEq, Debug)]
+pub struct Annotation {
+    /// Annotation value
+    pub val: SmolStr,
+    /// Source location. Note this is the location of _the entire key-value
+    /// pair_ for the annotation, not just `val` above
+    pub loc: Option<Loc>,
+}
+
+impl AsRef<str> for Annotation {
+    fn as_ref(&self) -> &str {
+        &self.val
     }
 }
 
@@ -1476,8 +1557,8 @@ impl ActionConstraint {
 
 impl std::fmt::Display for StaticPolicy {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        for (k, v) in &self.0.annotations {
-            writeln!(f, "@{}(\"{}\")", k, v.escape_debug())?
+        for (k, v) in self.0.annotations.iter() {
+            writeln!(f, "@{}(\"{}\")", k, v.val.escape_debug())?
         }
         write!(
             f,
@@ -1533,6 +1614,8 @@ impl<'u> arbitrary::Arbitrary<'u> for PolicyID {
 /// the Effect of a policy
 #[derive(Serialize, Deserialize, Hash, Debug, PartialEq, Eq, Clone, Copy)]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[cfg_attr(feature = "wasm", derive(tsify::Tsify))]
+#[cfg_attr(feature = "wasm", tsify(into_wasm_abi, from_wasm_abi))]
 pub enum Effect {
     /// this is a Permit policy
     #[serde(rename = "permit")]
@@ -1622,7 +1705,7 @@ pub mod test_generators {
                 for resource in all_resource_constraints() {
                     let permit = Template::new(
                         permit.clone(),
-                        BTreeMap::new(),
+                        Annotations::new(),
                         Effect::Permit,
                         principal.clone(),
                         action.clone(),
@@ -1631,7 +1714,7 @@ pub mod test_generators {
                     );
                     let forbid = Template::new(
                         forbid.clone(),
-                        BTreeMap::new(),
+                        Annotations::new(),
                         Effect::Forbid,
                         principal.clone(),
                         action.clone(),
@@ -1657,7 +1740,7 @@ mod test {
 
     use super::{test_generators::*, *};
     use crate::{
-        ast::{entity, name, EntityUID},
+        ast::{entity, id, name, EntityUID},
         parser::{
             err::{ParseError, ParseErrors, ToASTError, ToASTErrorKind},
             parse_policy, Loc,
@@ -1705,7 +1788,7 @@ mod test {
             let a = template.action_constraint().clone();
             let r = template.resource_constraint().clone();
             let nhc = template.non_head_constraints().clone();
-            let t2 = Template::new(id, BTreeMap::new(), effect, p, a, r, nhc);
+            let t2 = Template::new(id, Annotations::new(), effect, p, a, r, nhc);
             assert_eq!(template, t2);
         }
     }
@@ -1740,7 +1823,7 @@ mod test {
         let iid = PolicyID::from_string("iid");
         let t = Arc::new(Template::new(
             tid,
-            BTreeMap::new(),
+            Annotations::new(),
             Effect::Forbid,
             PrincipalConstraint::is_eq_slot(),
             ActionConstraint::Any,
@@ -1770,7 +1853,7 @@ mod test {
         let iid = PolicyID::from_string("iid");
         let t = Arc::new(Template::new(
             tid,
-            BTreeMap::new(),
+            Annotations::new(),
             Effect::Forbid,
             PrincipalConstraint::is_eq_slot(),
             ActionConstraint::Any,
@@ -1810,7 +1893,7 @@ mod test {
         let iid = PolicyID::from_string("linked");
         let t = Arc::new(Template::new(
             tid,
-            BTreeMap::new(),
+            Annotations::new(),
             Effect::Permit,
             PrincipalConstraint::is_in_slot(),
             ActionConstraint::any(),
@@ -1948,7 +2031,7 @@ mod test {
     #[test]
     fn test_iter_once() {
         let id = EntityUID::from_components(
-            name::Name::unqualified_name(name::Id::new_unchecked("s")),
+            name::Name::unqualified_name(id::Id::new_unchecked("s")),
             entity::Eid::new("eid"),
         );
         let mut i = EntityIterator::One(&id);
@@ -1959,11 +2042,11 @@ mod test {
     #[test]
     fn test_iter_mult() {
         let id1 = EntityUID::from_components(
-            name::Name::unqualified_name(name::Id::new_unchecked("s")),
+            name::Name::unqualified_name(id::Id::new_unchecked("s")),
             entity::Eid::new("eid1"),
         );
         let id2 = EntityUID::from_components(
-            name::Name::unqualified_name(name::Id::new_unchecked("s")),
+            name::Name::unqualified_name(id::Id::new_unchecked("s")),
             entity::Eid::new("eid2"),
         );
         let v = vec![&id1, &id2];
