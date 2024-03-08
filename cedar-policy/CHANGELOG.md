@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `wasm` Cargo feature for targeting Wasm
 - For the `partial-eval` experimental feature: added
 `Authorizer::evaluate_policies_partial()` (#474)
+- `Entity::into_inner` (resolving #636)
 
 ### Changed
 
@@ -56,6 +57,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 return a `RequestBuilder<&Schema>` so the `RequestBuilder<&Schema>::build`
 method checks the request against the schema provided and the
 `RequestBuilder<UnsetSchema>::build` method becomes infallible. (#559)
+- Improved "unexpected token" parse errors when the schema or policy parsers
+  expect an identifier. (#698)
 
 ### Fixed
 
