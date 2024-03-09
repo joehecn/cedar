@@ -18,8 +18,8 @@ jobs:
       - name: Build
         run: wasm-pack build cedar-wasm --release --target nodejs --scope joehecnnodejs
       - name: Publish
-        working-directory: ./cedar-wasm/pkg
-        run: npm publish -access public
+        working-directory: ./cedar-wasm
+        run: ./replace.sh && cd ./pkg && npm publish -access public
         env:
           NODE_AUTH_TOKEN: ${{secrets.npm_token}}
 
@@ -36,7 +36,7 @@ jobs:
       - name: Build
         run: wasm-pack build cedar-wasm --release --scope joehecnweb
       - name: Publish
-        working-directory: ./cedar-wasm/pkg
-        run: npm publish -access public
+        working-directory: ./cedar-wasm
+        run: ./replace.sh && cd ./pkg && npm publish -access public
         env:
           NODE_AUTH_TOKEN: ${{secrets.npm_token}}
