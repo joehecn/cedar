@@ -8,7 +8,7 @@ use wasm_bindgen::prelude::*;
 #[derive(Tsify, Debug, Serialize, Deserialize)]
 #[tsify(into_wasm_abi, from_wasm_abi)]
 pub enum SchemaValidationResult {
-    Success { ok: Boolean },
+    Success { ok: bool },
     Error { errors: Vec<String> },
 }
 
