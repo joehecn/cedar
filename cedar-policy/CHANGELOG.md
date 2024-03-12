@@ -22,11 +22,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `cedar-policy` crate in the next major version.
 - Validation error messages render types in the new, more readable, schema
   syntax. (#708, resolving #242)
+- Removed unnecessary lifetimes from some validation related structs (#715)
 
 ### Fixed
 
 - Validation for the `in` operator to no longer reports an error when comparing actions
   in different namespaces. (#704, resolving #642)
+- `ValidationResult` methods `validation_errors` and `validation_warnings`, along with
+  `confusable_string_checker`, now return iterators with static lifetimes instead of
+  custom lifetimes, addressing potential unsoundness. (#712)
 
 ## [3.1.0] - 2024-03-08
 Cedar Language Version: 3.1.0
