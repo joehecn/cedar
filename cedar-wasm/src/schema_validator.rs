@@ -1,6 +1,7 @@
 use std::str::FromStr;
 
 use cedar_policy::Schema;
+use serde::{Deserialize, Serialize};
 
 use tsify::Tsify;
 use wasm_bindgen::prelude::*;
